@@ -30,7 +30,7 @@ export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = []): UseQuer
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [fn, ...deps]);
 
   useEffect(() => {
     run();

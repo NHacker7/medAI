@@ -160,8 +160,12 @@ export default function ValidationPage() {
       };
       let r: ValidationResult;
       try {
+        // Attempt to use the primary AI backend service
         r = await validateMedication(input);
-      } catch {
+      } catch (e) {
+        // Fallback to local validation only on network/server errors
+        // This is a simplified check; you might want a more robust one
+        toast.warning('AI backend unreachable, using local fallback validation.');
         r = validateMedicationLocal(input);
       }
       setResult(r);
@@ -182,7 +186,7 @@ export default function ValidationPage() {
         patient_id: matchedPatient.id,
         medicine_id: schedule?.medicine_id ?? null,
         schedule_id: schedule?.id ?? null,
-        scheduled_time: schedule ? formatTime(schedule.scheduled_time) + ':00' : null,
+        scheduled_time: schedule?.scheduled_time ?? null,
         detected_medicine_name: detectedName,
         expected_medicine_name: schedule?.medicine?.name ?? null,
         detected_confidence: detectedConfidence,

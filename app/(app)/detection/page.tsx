@@ -102,10 +102,10 @@ export default function DetectionPage() {
                         key={i}
                         className="absolute border-2 border-success rounded-lg"
                         style={{
-                          left: `${(x / 100) * 100}%`,
-                          top: `${(y / 100) * 100}%`,
-                          width: `${(w / 100) * 100}%`,
-                          height: `${(h / 100) * 100}%`,
+                          left: x,
+                          top: y,
+                          width: w,
+                          height: h,
                         }}
                       >
                         <span className="absolute -top-6 left-0 rounded bg-success px-1.5 py-0.5 text-[10px] font-semibold text-white">
