@@ -1,3 +1,5 @@
+import traceback
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 
 from app.database.supabase import supabase
@@ -17,7 +19,6 @@ async def register_patient(
     gender: str = Form(...),
     file: UploadFile = File(...)
 ):
-
     try:
         image_bytes = await file.read()
 
@@ -32,12 +33,17 @@ async def register_patient(
             "medication_schedule": []
         }
 
+        print("Inserting into Supabase...")
+        print(data)
+
         response = (
             supabase
             .table("patients")
             .insert(data)
             .execute()
         )
+
+        print("Insert response:", response)
 
         return {
             "success": True,
@@ -46,4 +52,8 @@ async def register_patient(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )

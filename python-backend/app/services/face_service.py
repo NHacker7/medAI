@@ -19,3 +19,18 @@ def generate_face_encoding(file_bytes: bytes):
         raise ValueError("No face detected.")
 
     return encodings[0].tolist()
+
+
+def compare_face(uploaded_encoding, stored_encoding):
+
+    uploaded = np.array(uploaded_encoding)
+    stored = np.array(stored_encoding)
+
+    distance = face_recognition.face_distance(
+        [stored],
+        uploaded
+    )[0]
+
+    match = distance < 0.50
+
+    return match, float(distance)

@@ -1,41 +1,106 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# =====================================================
+# NEXT.JS
+# =====================================================
 
-# dependencies
 /node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# next.js
 /.next/
 /out/
-
-# production
 /build
 
-# misc
-.DS_Store
-*.pem
+.pnp
+.pnp.js
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# local env files
-.env
-.env*.local
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# =====================================================
+# PYTHON
+# =====================================================
 
 .venv/
 .venv-1/
-.next/
-node_modules/
+venv/
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =====================================================
+# DATASETS
+# =====================================================
+
+python-backend/datasets/medicine_raw/
+python-backend/datasets/medicine_images/
+python-backend/datasets/medicine_cleaned/enriched/
+
+# Optional: ignore all cleaned CSVs if regenerated
+# python-backend/datasets/medicine_cleaned/*.csv
+
+# =====================================================
+# MODELS
+# =====================================================
+
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# =====================================================
+# ENVIRONMENT
+# =====================================================
+
+.env
+.env.*
+!.env.example
+
+# =====================================================
+# LOGS
+# =====================================================
+
+*.log
+
+# =====================================================
+# TEMP FILES
+# =====================================================
+
+project_structure.txt
+repo_structure.txt
+scripts_structure.txt
+
+# =====================================================
+# IDE
+# =====================================================
+
+.vscode/
+.idea/
+
+# =====================================================
+# SYSTEM
+# =====================================================
+
+.DS_Store
+Thumbs.db
+
+# =====================================================
+# TYPESCRIPT
+# =====================================================
+
+*.tsbuildinfo
+next-env.d.ts
+
+# =====================================================
+# COVERAGE
+# =====================================================
+
+coverage/
+# ==========================
+# DATA OUTPUTS
+# ==========================
+
+python-backend/datasets/logs/
+
+python-backend/datasets/medicine_cleaned/*.csv
+python-backend/datasets/medicine_cleaned/reports/
+
+python-backend/datasets/medicine_training/
+
+# Keep ETL scripts
+!python-backend/datasets/scripts/

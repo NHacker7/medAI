@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.routes.face import router as face_router
 from app.routes.patient import router as patient_router
-
+from app.routes.medicine import router as medicine_router
 
 
 app = FastAPI(
@@ -11,7 +11,7 @@ app = FastAPI(
 )
 app.include_router(patient_router)
 app.include_router(face_router)
-
+app.include_router(medicine_router)
 
 @app.get("/")
 def home():
