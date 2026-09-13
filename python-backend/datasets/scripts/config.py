@@ -60,18 +60,27 @@ LOGS = DATASETS / "logs"
 # ETL Settings
 # ============================================================
 
-# Number of medicines to enrich in one run
+# Test Mode
+TEST_MODE =False
+TEST_LIMIT = 10
+
+# Batch Size
 ENRICH_BATCH_SIZE = 5000
 
-# Save progress every N medicines
-CHECKPOINT_INTERVAL = 100
+# Save checkpoint every N medicines
+CHECKPOINT_INTERVAL = 50
 
 # Delay between API requests (seconds)
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.25
 
-# Number of retry attempts
-MAX_RETRIES = 3
+# Network timeout
+REQUEST_TIMEOUT = 30
 
+# Retry settings
+MAX_RETRIES = 5
+
+# Retry delay (seconds)
+RETRY_DELAY = 2
 # ============================================================
 # Create folders automatically
 # ============================================================

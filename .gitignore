@@ -104,3 +104,31 @@ python-backend/datasets/medicine_training/
 
 # Keep ETL scripts
 !python-backend/datasets/scripts/
+# =====================================================
+# LOCAL AI / RESEARCH DATA
+# =====================================================
+
+# ePillID research repository and dataset
+/epillid/
+/epillid_data/
+
+# VAIPE research repository
+/pill-recognition-vaipe/
+
+# YOLO training outputs
+/runs/
+
+# Local Indian medicine dataset
+/python-backend/datasets/medicine_india/
+
+# Other generated/local dataset outputs
+/python-backend/datasets/indian_medicines/
+
+# Supabase local temporary files
+/supabase/.temp/
+
+# Local medicine/OCR test images
+/python-backend/test_images/
+
+# Local test images
+/test_pill.jpg

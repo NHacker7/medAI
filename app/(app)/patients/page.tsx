@@ -38,9 +38,26 @@ import { toast } from 'sonner';
 import { calculateAge } from '@/lib/format';
 
 export default function PatientsPage() {
-  const { data: patients, loading, refetch } = useQuery(listPatients, []);
+  const {
+  data: patients,
+  loading,
+  error,
+  refetch,
+} = useQuery(listPatients, []);
   const [query, setQuery] = useState('');
 
+  if (error) {
+  return (
+    <div className="p-6">
+      <h2 className="text-lg font-semibold text-red-600">
+        Failed to load patients
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {error}
+      </p>
+    </div>
+  );
+}
   const filtered = (patients ?? []).filter((p) =>
     p.full_name.toLowerCase().includes(query.toLowerCase()),
   );
@@ -79,7 +96,12 @@ export default function PatientsPage() {
           className="h-10 rounded-xl pl-9"
         />
       </div>
-
+{error && (
+  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-600">
+    <p className="font-semibold">Failed to load patients</p>
+    <p className="mt-1 text-sm">{error}</p>
+  </div>
+)}
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (

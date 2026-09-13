@@ -5,14 +5,16 @@
 // talks to the AI server directly — secrets stay server-side.
 //
 // Set these secrets in the Supabase project:
-//   AI_BACKEND_URL   e.g. https://your-fastapi-host/ai
+//   AI_BACKEND_URL   e.g. https://your-fastapi-host
 //   AI_BACKEND_TOKEN  bearer token for the FastAPI service
+//   AI_GATEWAY_ALLOW_DEVELOPMENT_FALLBACK=true only for local/demo development
 //
 // When the backend is not yet deployed, the function falls back to a
 // deterministic local implementation so the app remains fully functional
 // during development. See docs/AI_INTEGRATION.md for the FastAPI route specs.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,6 +24,10 @@ const corsHeaders = {
 
 const BACKEND_URL = Deno.env.get("AI_BACKEND_URL") ?? "";
 const BACKEND_TOKEN = Deno.env.get("AI_BACKEND_TOKEN") ?? "";
+const ALLOW_DEVELOPMENT_FALLBACK =
+  Deno.env.get("AI_GATEWAY_ALLOW_DEVELOPMENT_FALLBACK") === "true";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 
 interface DetectedMedicine {
   class_name: string;
@@ -34,61 +40,145 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return errorResponse("method_not_allowed", "Only POST requests are supported.", 405);
+  }
+
+  const authenticated = await authenticateCaller(req);
+  if (!authenticated) {
+    return errorResponse("unauthorized", "Authentication is required.", 401);
+  }
+
   try {
     const body = await req.json();
-    const action: string = body.action;
+    const action: string | undefined = body.action;
     const image: string | undefined = body.image;
 
     switch (action) {
       case "face_register":
-        return await handleAction(req, "face/register", body, () =>
-          fallbackFaceRegister(image));
+        return await handleAction("/api/v1/ai/face-encodings", { image }, () =>
+          fallbackFaceRegister(image), mapFaceRegistration);
       case "face_recognize":
-        return await handleAction(req, "face/recognize", body, () =>
-          fallbackFaceRecognize(body.candidates));
+        return await handleAction("/api/v1/ai/face-matches", {
+          image,
+          candidates: normalizeFaceCandidates(body.candidates),
+        }, () => fallbackFaceRecognize(body.candidates), mapFaceRecognition);
       case "medicine_detect":
-        return await handleAction(req, "medicine/detect", body, () =>
-          fallbackMedicineDetect(image));
+        return await handleAction("/api/v1/ai/medicine-detections", { image }, () =>
+          fallbackMedicineDetect(image), mapMedicineDetection);
       case "validate":
-        return await handleAction(req, "validate", body, () =>
-          fallbackValidate(body));
+        return await handleAction("/api/v1/ai/medication-validations", normalizeValidationRequest(body), () =>
+          fallbackValidate(body), mapValidation);
       default:
-        return json({ error: `Unknown action: ${action}` }, 400);
+        return errorResponse("unknown_action", "The requested AI action is not supported.", 400);
     }
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : "Internal error" }, 500);
+    // Do not reflect request contents, tokens, or upstream error bodies.
+    return errorResponse("invalid_request", "The AI request could not be processed.", 400);
   }
 });
 
+async function authenticateCaller(req: Request): Promise<boolean> {
+  const authorization = req.headers.get("Authorization");
+  if (!authorization || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authorization } },
+  });
+  const { data, error } = await client.auth.getUser();
+  return !error && Boolean(data.user);
+}
+
 async function handleAction(
-  _req: Request,
   path: string,
   body: Record<string, unknown>,
   fallback: () => Promise<Response>,
+  mapResponse: (data: Record<string, unknown>) => unknown,
 ): Promise<Response> {
-  if (!BACKEND_URL) {
-    return await fallback();
+  if (!BACKEND_URL || !BACKEND_TOKEN) {
+    return fallbackOrUnavailable(fallback);
   }
+
   try {
-    const res = await fetch(`${BACKEND_URL}/${path}`, {
+    const res = await fetch(`${BACKEND_URL.replace(/\/$/, "")}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(BACKEND_TOKEN ? { Authorization: `Bearer ${BACKEND_TOKEN}` } : {}),
+        Authorization: `Bearer ${BACKEND_TOKEN}`,
       },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const text = await res.text();
-      return json({ error: `Backend ${res.status}: ${text}` }, 502);
+      return errorResponse("ai_backend_request_failed", "The AI service could not complete the request.", 502);
     }
-    const data = await res.json();
-    return json(data);
-  } catch (err) {
-    // If the backend is unreachable, fall back so the app keeps working.
-    console.error("AI backend unreachable, using fallback:", err);
-    return await fallback();
+    const upstream = await res.json() as Record<string, unknown>;
+    return json(mapResponse(upstream));
+  } catch {
+    return fallbackOrUnavailable(fallback);
   }
+}
+
+async function fallbackOrUnavailable(fallback: () => Promise<Response>): Promise<Response> {
+  if (ALLOW_DEVELOPMENT_FALLBACK) return await fallback();
+  return errorResponse("ai_backend_unavailable", "The AI service is currently unavailable.", 503);
+}
+
+function normalizeFaceCandidates(candidates: unknown): unknown[] {
+  if (!Array.isArray(candidates)) return [];
+  return candidates.map((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    return {
+      patient_id: item.patient_id,
+      full_name: item.full_name,
+      embedding: item.encoding,
+    };
+  });
+}
+
+function normalizeValidationRequest(body: Record<string, unknown>): Record<string, unknown> {
+  const patient = body.patient as Record<string, unknown> | undefined;
+  return {
+    patient: {
+      id: patient?.id,
+      full_name: patient?.full_name,
+    },
+    expected_medicine: {
+      name: body.expected_medicine_name,
+    },
+    detected_medicine: {
+      class_name: body.detected_medicine_name,
+      confidence: body.detected_confidence,
+    },
+    face_confidence: body.face_confidence,
+    scheduled_time: body.scheduled_time,
+  };
+}
+
+function upstreamData(upstream: Record<string, unknown>): Record<string, unknown> {
+  const data = upstream.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Invalid upstream response");
+  }
+  return data as Record<string, unknown>;
+}
+
+function mapFaceRegistration(upstream: Record<string, unknown>) {
+  const data = upstreamData(upstream);
+  return { success: true, encoding: data.embedding, face_count: data.face_count };
+}
+
+function mapFaceRecognition(upstream: Record<string, unknown>) {
+  const data = upstreamData(upstream);
+  return { success: true, ...data };
+}
+
+function mapMedicineDetection(upstream: Record<string, unknown>) {
+  const data = upstreamData(upstream);
+  return { success: true, detections: data.detections, top_detection: data.top_detection };
+}
+
+function mapValidation(upstream: Record<string, unknown>) {
+  return upstreamData(upstream);
 }
 
 function json(data: unknown, status = 200): Response {
@@ -96,6 +186,10 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function errorResponse(code: string, message: string, status: number): Response {
+  return json({ error: { code, message } }, status);
 }
 
 // ---------------------------------------------------------------------------

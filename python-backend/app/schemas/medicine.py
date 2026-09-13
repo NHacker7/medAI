@@ -2,11 +2,15 @@ from pydantic import BaseModel
 
 
 class MedicineCreate(BaseModel):
-    patient_id: str
-    medicine_name: str
-    dosage: str
-    dosage_unit: str
-    frequency: str
-    intake_time: str
-    before_food: bool
-    instructions: str | None = None
+    name: str
+    generic_name: str | None = None
+    category: str | None = None
+    dosage_form: str | None = None
+    strength: str | None = None
+    manufacturer: str | None = None
+    description: str | None = None
+    side_effects: str | None = None
+    color: str | None = None
+    shape: str | None = None
+    barcode: str | None = None
+    image_url: str | None = None

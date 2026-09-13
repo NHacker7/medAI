@@ -80,37 +80,46 @@ export default function PatientForm({ patientId }: PatientFormProps) {
       });
     });
   }, [patientId, reset]);
+async function onSubmit(values: FormValues) {
+  setSaving(true);
 
-  async function onSubmit(values: FormValues) {
-    setSaving(true);
-    try {
-      const input: PatientInput = {
-        full_name: values.full_name,
-        date_of_birth: values.date_of_birth || null,
-        gender: values.gender ?? null,
-        phone: values.phone || null,
-        address: values.address || null,
-        medical_conditions: values.medical_conditions || null,
-        allergies: values.allergies || null,
-        emergency_contact: values.emergency_contact || null,
-        avatar_url: null,
-        notes: values.notes || null,
-      };
-      if (isEdit && patientId) {
-        await updatePatient(patientId, input);
-        toast.success('Patient updated');
-      } else {
-        await createPatient(input);
-        toast.success('Patient added');
-      }
-      router.push('/patients');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not save patient');
-    } finally {
-      setSaving(false);
+  try {
+    const input: PatientInput = {
+      full_name: values.full_name,
+      date_of_birth: values.date_of_birth || null,
+      gender: values.gender ?? null,
+      phone: values.phone || null,
+      address: values.address || null,
+      medical_conditions: values.medical_conditions || null,
+      allergies: values.allergies || null,
+      emergency_contact: values.emergency_contact || null,
+      avatar_url: null,
+      notes: values.notes || null,
+    };
+
+    if (isEdit && patientId) {
+      await updatePatient(patientId, input);
+      toast.success('Patient updated');
+    } else {
+      await createPatient(input);
+      toast.success('Patient added');
     }
-  }
 
+    router.push('/patients');
+
+  } catch (err) {
+    console.error('CREATE PATIENT ERROR:', err);
+
+    toast.error(
+      err instanceof Error
+        ? err.message
+        : JSON.stringify(err)
+    );
+
+  } finally {
+    setSaving(false);
+  }
+}
   const gender = watch('gender');
 
   return (

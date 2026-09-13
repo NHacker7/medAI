@@ -12,28 +12,43 @@ import { supabase } from '@/lib/supabase';
 import type { Patient, ValidationStatus } from '@/lib/types';
 
 const AI_GATEWAY = 'ai-gateway'; // edge function slug
+async function callAI<T>(
+  action: string,
+  payload: Record<string, unknown>
+): Promise<T> {
+  try {
+    const { data, error } = await supabase.functions.invoke(AI_GATEWAY, {
+      body: {
+        action,
+        ...payload,
+      },
+    });
 
-async function callAI<T>(action: string, payload: Record<string, unknown>): Promise<T> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token ?? '';
-  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/${AI_GATEWAY}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
-    },
-    body: JSON.stringify({ action, ...payload }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`AI request failed (${res.status}): ${text}`);
+    if (error) {
+      throw new Error(error.message || 'AI gateway request failed');
+    }
+
+    if (!data) {
+      throw new Error('AI gateway returned no data');
+    }
+
+    if (data.error) {
+      const gatewayError = data.error as { message?: string } | string;
+      throw new Error(
+        typeof gatewayError === 'string'
+          ? gatewayError
+          : gatewayError.message || 'AI gateway request failed',
+      );
+    }
+
+    return data as T;
+  } catch (err) {
+    throw err instanceof Error
+      ? err
+      : new Error('AI request failed');
   }
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json as T;
 }
+
 
 // ---------------------------------------------------------------------------
 // Face Recognition (face_recognition + dlib)
@@ -94,11 +109,31 @@ export interface MedicineDetectionResult {
   message?: string;
 }
 
-/** Detect medicines in a webcam frame using YOLOv8. */
-export async function detectMedicine(imageBase64: string): Promise<MedicineDetectionResult> {
-  return callAI<MedicineDetectionResult>('medicine_detect', { image: imageBase64 });
-}
+/** Detect medicines in a webcam frame using YOLOv8 through the AI gateway. */
+export async function detectMedicine(
+  imageBase64: string
+): Promise<MedicineDetectionResult> {
+  const result = await callAI<MedicineDetectionResult>('medicine_detect', {
+    image: imageBase64,
+  });
 
+  // Keep the public frontend contract on a 0–1 scale regardless of the
+  // upstream implementation or model serialization.
+  const normalize = (confidence: number) =>
+    confidence > 1 ? confidence / 100 : confidence;
+  const detections = result.detections.map((detection) => ({
+    ...detection,
+    confidence: Math.max(0, Math.min(1, normalize(detection.confidence))),
+  }));
+  const top = result.top_detection
+    ? {
+        ...result.top_detection,
+        confidence: Math.max(0, Math.min(1, normalize(result.top_detection.confidence))),
+      }
+    : null;
+
+  return { ...result, detections, top_detection: top };
+}
 // ---------------------------------------------------------------------------
 // AI Validation Logic
 // ---------------------------------------------------------------------------
@@ -123,9 +158,61 @@ export interface ValidationResult {
  * current schedule slot. Runs a deterministic ruleset locally AND is mirrored
  * on the backend for audit. The edge function can be extended to call a richer
  * inference model later.
- */
-export async function validateMedication(input: ValidationInput): Promise<ValidationResult> {
-  return callAI<ValidationResult>('validate', input as unknown as Record<string, unknown>);
+ */export async function validateMedication(
+  input: ValidationInput
+): Promise<ValidationResult> {
+
+  // --------------------------------------------------
+  // Check face confidence first
+  // --------------------------------------------------
+
+  if (
+    input.face_confidence === null ||
+    input.face_confidence < 50
+  ) {
+    return {
+      status: 'no_face',
+      reason: 'Face could not be verified with sufficient confidence.',
+      recommendations: [
+        'Reposition the patient in front of the camera',
+        'Ensure good lighting on the face',
+        'Register the patient face if not yet enrolled',
+      ],
+    };
+  }
+
+  // --------------------------------------------------
+  // Check medicine detection
+  // --------------------------------------------------
+
+  if (
+    !input.detected_medicine_name ||
+    input.detected_confidence === null
+  ) {
+    return {
+      status: 'unknown',
+      reason: 'Medicine could not be detected.',
+      recommendations: [
+        'Place the medicine clearly in view of the camera',
+        'Remove other objects from the frame',
+        'Improve lighting conditions',
+      ],
+    };
+  }
+
+  // --------------------------------------------------
+  // Call FastAPI validation endpoint
+  // --------------------------------------------------
+
+  const gatewayResult = await callAI<ValidationResult>('validate', {
+    patient: input.patient,
+    expected_medicine_name: input.expected_medicine_name,
+    detected_medicine_name: input.detected_medicine_name,
+    detected_confidence: input.detected_confidence,
+    face_confidence: input.face_confidence,
+    scheduled_time: input.scheduled_time,
+  });
+  return gatewayResult;
 }
 
 /** Local fallback validation (used when the AI gateway is unavailable). */
@@ -183,4 +270,72 @@ export function validateMedicationLocal(input: ValidationInput): ValidationResul
       'Check whether the schedule was recently updated',
     ],
   };
+}
+// ---------------------------------------------------------------------------
+// Medicine Master Database Search (FastAPI)
+// ---------------------------------------------------------------------------
+
+export interface MasterMedicine {
+  medicine_id: number;
+  ndc_code: string | null;
+  generic_name: string | null;
+  brand_name: string | null;
+  manufacturer: string | null;
+  dosage_form: string | null;
+  route: string | null;
+  active_ingredients: string | null;
+  marketing_category: string | null;
+  product_type: string | null;
+  rxcui: string | null;
+  spl_set_id: string | null;
+  upc: string | null;
+  dailymed_title: string | null;
+  published_date: string | null;
+  spl_version: string | null;
+  ndc_count: number | null;
+  package_count: number | null;
+  image_count: number | null;
+  history_versions: number | null;
+}
+
+export interface MedicineSearchResult {
+  success: boolean;
+  count: number;
+  medicines: MasterMedicine[];
+}
+
+const MEDICINE_API =
+  process.env.NEXT_PUBLIC_MEDICINE_API_URL ?? 'http://127.0.0.1:8000';
+
+/**
+ * Search the 114,523 medicine master database through FastAPI.
+ */
+export async function searchMasterMedicines(
+  query: string,
+  limit = 10,
+): Promise<MedicineSearchResult> {
+  const trimmed = query.trim();
+
+  if (!trimmed) {
+    return {
+      success: true,
+      count: 0,
+      medicines: [],
+    };
+  }
+
+  const url = new URL(`${MEDICINE_API}/medicine/search`);
+  url.searchParams.set('query', trimmed);
+  url.searchParams.set('limit', String(limit));
+
+  const res = await fetch(url.toString());
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Medicine search failed (${res.status}): ${text || 'Unknown error'}`,
+    );
+  }
+
+  return (await res.json()) as MedicineSearchResult;
 }
